@@ -1,0 +1,75 @@
+---
+title: "Practical Machine Learning"
+output: html_document
+---
+
+##Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+##Assumptions
+The training and testing data set is pre-downloaded and loaded into R
+
+###Step 1: Read Data and Load Libraries
+I should have set the seed.... anyway
+```{r}
+test<-read.csv("pml-testing.csv")
+train<-read.csv("pml-training.csv")
+
+library(mlbench)
+library(caret)
+library(rpart)
+library(randomForest)
+```
+
+###Step 2: Partition the Data Based on 80-20
+Rather than 10 fold crossvalidation, i used 80 (training) and 20 (testing) to validate my model.
+```{r}
+partition<-createDataPartition(train$classe, p=0.8, list=FALSE)
+iTrainSet<-train[partition,]
+iTestSet<-train[-partition,]
+```
+
+###Step 3: Filter Away Features
+At first glance the first 5 features doesnt seems to be related to the prediction - they are used more to identify the records.
+
+The same pre-processing steps are also applied to the test and submission set.
+```{r}
+#Remove first 5 columns as they are not useful features
+iTrainFiltered<-iTrainSet[,-c(1:5)]
+iTestFiltered<-iTestSet[,-c(1:5)]
+iSubmitFiltered<-test[,-c(1:5)]
+```
+
+###Step 4: Low Variance
+Simple form of feature selection - remove features with very relative few unique values. There are 2 parameters used by the library - i adjusted the uniqueCut parameter to improve its sensitivity.
+```{r}
+#Filter away features with low variance (whcih means they are poor predictors) 
+#Change uniqueCut to 15, increase the sensitivity
+aryToInclude<-nzv(iTrainFiltered, saveMetrics = TRUE, uniqueCut=15)
+iTrainFilterVariance<-iTrainFiltered[,!aryToInclude$nzv]
+iTestFilteredVariance<-iTestFiltered[,!aryToInclude$nzv]
+iSubmitFilteredVariance<-iSubmitFiltered[,!aryToInclude$nzv]
+```
+
+###Step 5: Remove NA
+Remove features with NA values - they arent too useful in prediction. 
+```{r}
+iTrainFilterNA<-iTrainFilterVariance[,colSums(is.na(iTrainFilterVariance)) == 0]
+iTestFilterNA<-iTestFilteredVariance[,colSums(is.na(iTestFilteredVariance)) == 0]
+iSubmitFilterNA<-iSubmitFilteredVariance[,colSums(is.na(iTestFilteredVariance)) == 0]
+```
+
+###Step 6: BUild Model
+Use Random Forest to build a prediction. Notice we are doing binary prediction here. 
+```{r}
+modelRF <- randomForest(classe ~ ., data=iTrainFilterNA, method="class")
+predictRF <- predict(modelRF, iTestFilterNA, type = "class")
+confusionMatrix(predictRF, iTestFilterNA$classe)
+```
+
+###Step 7: Final Prediction
+The prediction accuracy looks good, let's use them to predict the final values
+```{r}
+predictfinal <- predict(modelRF, iSubmitFilterNA, type="class")
+```
